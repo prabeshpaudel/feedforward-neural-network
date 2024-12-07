@@ -30,15 +30,19 @@ activation_functions = {
     'leaky_relu': leaky_relu
 }
 
-
 def get_activation_derivative(activation_function):
+    # Return the derivative function based on the activation function name
     if activation_function == 'sigmoid':
+        # Derivative of sigmoid function, where x is the output of sigmoid(x)
         return lambda x: x * (1.0 - x)
     elif activation_function == 'tanh':
-        return lambda x: 1 - np.square(np.tanh(x))
+        # Derivative of tanh function, where x is the output of tanh(x)
+        return lambda x: 1 - np.square(x)
     elif activation_function == 'relu':
+        # Derivative of ReLU function
         return lambda x: (x > 0).astype(float)
     elif activation_function == 'leaky_relu':
+        # Derivative of Leaky ReLU function
         return lambda x: np.where(x > 0, 1, 0.01)
     else:
         raise ValueError("Unsupported activation function for derivatives")
