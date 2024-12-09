@@ -15,13 +15,16 @@ learning_rates = {
 # List of activation functions and weight initialization methods to test
 activation_functions = ['sigmoid', 'tanh', 'relu', 'leaky_relu']
 weight_initializations = ['random', 'xavier', 'he']
-
+regularizations = {
+    "l2_lambda": [0.001, 0.01, 0.1],
+    "dropout_rate": [0.2, 0.4, 0.6]
+}
 
 # Set parameters for the neural network
 input_nodes = 784
 hidden_nodes = 200
 output_nodes = 10
-epochs = 5  # Reduced number of epochs for quicker execution during testing
+epochs = 10  # Reduced number of epochs for quicker execution during testing
 
 # Load the MNIST dataset from TensorFlow
 mnist = tf.keras.datasets.mnist
@@ -75,217 +78,175 @@ image_array = train_images[index].reshape((28, 28))
 # plt.show()
 print("The target value is:", train_labels[index])
 
-# Dictionary to store performance, loss results, and AUC results for each combination
-performance_results = {}
-loss_results = {}
-auc_results = {}
 
-# Loop over each activation function and weight initialization method
-for weight_init in weight_initializations:
+# Train and evaluate function
+def train_and_evaluate(activation_function, weight_init, reg_type=None, reg_value=None):
+    # Normalize images
+    train_inputs = normalize_images(train_images, activation_function)
+    test_inputs = normalize_images(test_images, activation_function)
+
+    # Set learning rate based on activation function
+    learning_rate = learning_rates[activation_function]
+
+    # Create neural network model with or without regularization
+    if reg_type == "l2_lambda":
+        nn_model = neuralNetwork(input_nodes, hidden_nodes, output_nodes, learning_rate,
+                                 activation_function, weight_init=weight_init, l2_lambda=reg_value,
+                                 dropout_rate=0)
+    elif reg_type == "dropout_rate":
+        nn_model = neuralNetwork(input_nodes, hidden_nodes, output_nodes, learning_rate,
+                                 activation_function, weight_init=weight_init, l2_lambda=0,
+                                 dropout_rate=reg_value)
+    else:
+        nn_model = neuralNetwork(input_nodes, hidden_nodes, output_nodes, learning_rate,
+                                 activation_function, weight_init=weight_init)
+
+    # Track metrics
+    epoch_losses = []
+    epoch_auc_scores = []
+
+    for e in range(epochs):
+        epoch_loss = 0
+        for i in range(len(train_inputs)):
+            inputs = train_inputs[i]
+            targets = np.zeros(output_nodes) + 0.01
+            targets[train_labels[i]] = 0.99
+            loss = nn_model.train(inputs, targets)
+            epoch_loss += loss
+        avg_epoch_loss = epoch_loss / len(train_inputs)
+        epoch_losses.append(avg_epoch_loss)
+
+        auc_score = compute_auc(nn_model, test_inputs, test_labels)
+        epoch_auc_scores.append(auc_score)
+
+    # Evaluate performance
+    scorecard = []
+    for i in range(len(test_inputs)):
+        correct_label = test_labels[i]
+        inputs = test_inputs[i]
+        outputs = nn_model.predict(inputs)
+        label = np.argmax(outputs)
+        scorecard.append(1 if label == correct_label else 0)
+
+    performance = (np.asarray(scorecard).sum() / len(test_inputs)) * 100
+    return epoch_losses, epoch_auc_scores, performance
+
+
+# Test for activation functions with random weight initialization and no regularization
+def test_activation_functions():
+    results = {}
     for activation_function in activation_functions:
-        print(f"\nTraining with activation function: {activation_function} and weight initialization: {weight_init}")
-
-        # Get the corresponding learning rate
-        learning_rate = learning_rates[activation_function]
-
-        # Normalize images according to the activation function
-        train_inputs = normalize_images(train_images, activation_function)
-        test_inputs = normalize_images(test_images, activation_function)
-
-        # Create a neural network instance with the specified activation function and weight initialization method
-        nn_model = neuralNetwork(input_nodes, hidden_nodes, output_nodes, learning_rate, activation_function,
-                                 weight_init=weight_init)
-
-        # Track metrics during training
-        epoch_losses = []
-        epoch_auc_scores = []
-
-        # Train the neural network over multiple epochs
-        for e in range(epochs):
-            print("Epoch:", e + 1, "/", epochs)
-            epoch_loss = 0
-            for i in range(len(train_inputs)):
-                inputs = train_inputs[i]
-                targets = np.zeros(output_nodes) + 0.01
-                targets[train_labels[i]] = 0.99
-                # Train the model and accumulate loss
-                loss = nn_model.train(inputs, targets)
-                epoch_loss += loss
-            # Average loss for the epoch
-            avg_epoch_loss = epoch_loss / len(train_inputs)
-            epoch_losses.append(avg_epoch_loss)
-            print(f"Average loss for epoch {e + 1}: {avg_epoch_loss:.4f}")
-
-            # Calculate AUC after each epoch
-            auc_score = compute_auc(nn_model, test_inputs, test_labels)
-            epoch_auc_scores.append(auc_score)
-            print(f"AUC after epoch {e + 1}: {auc_score:.4f}")
-
-        # Store the loss history and AUC scores for analysis
-        loss_results[(activation_function, weight_init)] = epoch_losses
-        auc_results[(activation_function, weight_init)] = epoch_auc_scores
-
-        # Evaluate the network's performance on the test set
-        scorecard = []
-        for i in range(len(test_inputs)):
-            correct_label = test_labels[i]
-            inputs = test_inputs[i]
-            outputs = nn_model.predict(inputs)
-            label = np.argmax(outputs)
-            # Append 1 if correct, 0 if incorrect
-            scorecard.append(1 if label == correct_label else 0)
-
-        # Calculate and print performance
-        scorecard_array = np.asarray(scorecard)
-        performance = (scorecard_array.sum() / scorecard_array.size) * 100
-        print(f"Performance with {activation_function} activation and {weight_init} initialization: {performance:.2f}%")
-
-        # Store performance in the results dictionary
-        performance_results[(activation_function, weight_init)] = performance
-
-sorted_results = sorted(performance_results.items(), key=lambda x: x[1], reverse=True)
-best_config = sorted_results[0]  # Highest performance
-worst_config = sorted_results[-1]  # Lowest performance
-
-print("\nBest configuration:", best_config)
-print("Worst configuration:", worst_config)
-
-regularizations = {
-    "l2_lambda": [0.001, 0.01, 0.1],
-    "dropout_rate": [0.2, 0.4, 0.6]
-}
-
-reg_performance_results = {}
-reg_loss_results = {}
-reg_auc_results = {}
+        print(f"\nTesting activation function: {activation_function}")
+        epoch_losses, epoch_auc_scores, performance = train_and_evaluate(activation_function, "random")
+        results[activation_function] = {
+            "losses": epoch_losses,
+            "auc_scores": epoch_auc_scores,
+            "performance": performance
+        }
+    return results
 
 
-# Function to run regularization tests on fixed activation function and weight initialization
-def run_regularization_tests(activation_function, weight_init, config_name):
-    print(f"\nTesting regularizations for {config_name} configuration: {activation_function} and {weight_init}")
+# Test for weight initializations with sigmoid activation and no regularization
+def test_weight_initializations():
+    results = {}
+    for weight_init in weight_initializations:
+        print(f"\nTesting weight initialization: {weight_init}")
+        epoch_losses, epoch_auc_scores, performance = train_and_evaluate("sigmoid", weight_init)
+        results[weight_init] = {
+            "losses": epoch_losses,
+            "auc_scores": epoch_auc_scores,
+            "performance": performance
+        }
+    return results
+
+
+# Test for regularizations with sigmoid activation and random weight initialization
+def test_regularizations():
+    results = {}
     for reg_type, reg_values in regularizations.items():
         for reg_value in reg_values:
-            print(f"\nTraining with {reg_type}={reg_value}")
-
-            # Get the corresponding learning rate
-            learning_rate = learning_rates[activation_function]
-
-            # Normalize images according to the activation function
-            train_inputs = normalize_images(train_images, activation_function)
-            test_inputs = normalize_images(test_images, activation_function)
-
-            # Create a neural network instance with regularization
-            if reg_type == "l2_lambda":
-                nn_model = neuralNetwork(input_nodes, hidden_nodes, output_nodes, learning_rate,
-                                         activation_function, weight_init=weight_init, l2_lambda=reg_value,
-                                         dropout_rate=0)
-            elif reg_type == "dropout_rate":
-                nn_model = neuralNetwork(input_nodes, hidden_nodes, output_nodes, learning_rate,
-                                         activation_function, weight_init=weight_init, l2_lambda=0,
-                                         dropout_rate=reg_value)
-            else:
-                return ValueError(f"Invalid regularization")
-
-            # Train the neural network
-            epoch_losses = []
-            epoch_auc_scores = []
-            for e in range(epochs):
-                print("Epoch:", e + 1, "/", epochs)
-                epoch_loss = 0
-                for i in range(len(train_inputs)):
-                    inputs = train_inputs[i]
-                    targets = np.zeros(output_nodes) + 0.01
-                    targets[train_labels[i]] = 0.99
-                    # Train the model and accumulate loss
-                    loss = nn_model.train(inputs, targets)
-                    epoch_loss += loss
-                # Average loss for the epoch
-                avg_epoch_loss = epoch_loss / len(train_inputs)
-                epoch_losses.append(avg_epoch_loss)
-                print(f"Average loss for epoch {e + 1}: {avg_epoch_loss:.4f}")
-
-                # Calculate AUC after each epoch
-                auc_score = compute_auc(nn_model, test_inputs, test_labels)
-                epoch_auc_scores.append(auc_score)
-                print(f"AUC after epoch {e + 1}: {auc_score:.4f}")
-
-            # Evaluate performance
-            scorecard = []
-            for i in range(len(test_inputs)):
-                correct_label = test_labels[i]
-                inputs = test_inputs[i]
-                outputs = nn_model.predict(inputs)
-                label = np.argmax(outputs)
-                scorecard.append(1 if label == correct_label else 0)
-
-            performance = (np.asarray(scorecard).sum() / len(test_inputs)) * 100
-            print(f"Performance with {reg_type}={reg_value}: {performance:.2f}%")
-
-            # Store results for plotting and analysis
-            key = (activation_function, weight_init, reg_type, reg_value)
-            reg_loss_results[key] = epoch_losses
-            reg_auc_results[key] = epoch_auc_scores
-            reg_performance_results[key] = performance
+            print(f"\nTesting regularization {reg_type}={reg_value}")
+            epoch_losses, epoch_auc_scores, performance = train_and_evaluate(
+                "sigmoid", "random", reg_type=reg_type, reg_value=reg_value)
+            results[(reg_type, reg_value)] = {
+                "losses": epoch_losses,
+                "auc_scores": epoch_auc_scores,
+                "performance": performance
+            }
+    return results
 
 
-# Regularization tests for best and worst configurations
-best_activation, best_weight_init = best_config[0]
-worst_activation, worst_weight_init = worst_config[0]
+# Running the tests
+activation_results = test_activation_functions()
+weight_init_results = test_weight_initializations()
+regularization_results = test_regularizations()
 
-run_regularization_tests(best_activation, best_weight_init, "Best")
-run_regularization_tests(worst_activation, worst_weight_init, "Worst")
+# Print summary of results for all tests
+print("\nSummary of Activation Function Performance:")
+for activation_function, result in activation_results.items():
+    print(f"{activation_function}: Performance={result['performance']:.2f}%")
 
-# Results of Performance, Average Loss, AUC Score
+print("\nSummary of Weight Initialization Performance:")
+for weight_init, result in weight_init_results.items():
+    print(f"{weight_init}: Performance={result['performance']:.2f}%")
 
-# Plot the training loss for each combination
+print("\nSummary of Regularization Performance:")
+for (reg_type, reg_value), result in regularization_results.items():
+    print(f"{reg_type}={reg_value}: Performance={result['performance']:.2f}%")
+
+# Plotting results for Activation Functions
 plt.figure(figsize=(12, 8))
-for (activation_function, weight_init), losses in loss_results.items():
-    plt.plot(range(1, epochs + 1), losses, label=f"{activation_function} - {weight_init}")
+for activation_function, result in activation_results.items():
+    plt.plot(range(1, epochs + 1), result["losses"], label=f"{activation_function} Loss")
 plt.xlabel('Epoch')
 plt.ylabel('Average Loss')
-plt.title('Training Loss for Different Activation Functions and Weight Initialization Methods')
+plt.title('Activation Function Test - Training Loss')
 plt.legend()
 plt.show()
 
-# Plot the AUC scores for each combination
 plt.figure(figsize=(12, 8))
-for (activation_function, weight_init), auc_scores in auc_results.items():
-    plt.plot(range(1, epochs + 1), auc_scores, label=f"{activation_function} - {weight_init}")
+for activation_function, result in activation_results.items():
+    plt.plot(range(1, epochs + 1), result["auc_scores"], label=f"{activation_function} AUC")
 plt.xlabel('Epoch')
 plt.ylabel('AUC Score')
-plt.title('AUC Scores for Different Activation Functions and Weight Initialization Methods')
+plt.title('Activation Function Test - AUC Scores')
 plt.legend()
 plt.show()
 
-# Print out a summary of performance for all combinations of activation functions and weight initializations
-print("\nSummary of performance for different activation functions and weight initializations:")
-for (activation_function, weight_init), performance in performance_results.items():
-    print(f"{activation_function} with {weight_init} initialization: {performance:.2f}%")
-
-
-# Regularization Results
+# Plotting results for Weight Initializations
 plt.figure(figsize=(12, 8))
-for (activation_function, weight_init, reg_type, reg_value), losses in reg_loss_results.items():
-    if (activation_function, weight_init) in [(best_activation, best_weight_init),
-                                              (worst_activation, worst_weight_init)]:
-        plt.plot(range(1, epochs + 1), losses, label=f"{activation_function}-{weight_init}, {reg_type}={reg_value}")
+for weight_init, result in weight_init_results.items():
+    plt.plot(range(1, epochs + 1), result["losses"], label=f"{weight_init} Loss")
 plt.xlabel('Epoch')
 plt.ylabel('Average Loss')
-plt.title('Training Loss with Regularization')
+plt.title('Weight Initialization Test - Training Loss')
 plt.legend()
 plt.show()
 
 plt.figure(figsize=(12, 8))
-for (activation_function, weight_init, reg_type, reg_value), auc_scores in reg_auc_results.items():
-    if (activation_function, weight_init) in [(best_activation, best_weight_init),
-                                              (worst_activation, worst_weight_init)]:
-        plt.plot(range(1, epochs + 1), auc_scores, label=f"{activation_function}-{weight_init}, {reg_type}={reg_value}")
+for weight_init, result in weight_init_results.items():
+    plt.plot(range(1, epochs + 1), result["auc_scores"], label=f"{weight_init} AUC")
 plt.xlabel('Epoch')
 plt.ylabel('AUC Score')
-plt.title('AUC Scores with Regularization')
+plt.title('Weight Initialization Test - AUC Scores')
 plt.legend()
 plt.show()
 
-print("\nSummary of performance for different activation functions, weight initializations, and regularizations:")
-for (activation_function, weight_init, reg_type, reg_value), performance in reg_performance_results.items():
-    print(f"{activation_function} with {weight_init} initialization and {reg_type}={reg_value}: {performance:.2f}%")
+# Plotting results for Regularizations
+plt.figure(figsize=(12, 8))
+for (reg_type, reg_value), result in regularization_results.items():
+    plt.plot(range(1, epochs + 1), result["losses"], label=f"{reg_type}={reg_value} Loss")
+plt.xlabel('Epoch')
+plt.ylabel('Average Loss')
+plt.title('Regularization Test - Training Loss')
+plt.legend()
+plt.show()
+
+plt.figure(figsize=(12, 8))
+for (reg_type, reg_value), result in regularization_results.items():
+    plt.plot(range(1, epochs + 1), result["auc_scores"], label=f"{reg_type}={reg_value} AUC")
+plt.xlabel('Epoch')
+plt.ylabel('AUC Score')
+plt.title('Regularization Test - AUC Scores')
+plt.legend()
+plt.show()
