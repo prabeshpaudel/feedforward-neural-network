@@ -106,6 +106,7 @@ def train_and_evaluate(activation_function, weight_init, reg_type=None, reg_valu
     epoch_auc_scores = []
 
     for e in range(epochs):
+        print("Epoch:", e + 1, "/", epochs)
         epoch_loss = 0
         for i in range(len(train_inputs)):
             inputs = train_inputs[i]
@@ -115,9 +116,11 @@ def train_and_evaluate(activation_function, weight_init, reg_type=None, reg_valu
             epoch_loss += loss
         avg_epoch_loss = epoch_loss / len(train_inputs)
         epoch_losses.append(avg_epoch_loss)
+        print(f"Average loss for epoch {e + 1}: {avg_epoch_loss:.4f}")
 
         auc_score = compute_auc(nn_model, test_inputs, test_labels)
         epoch_auc_scores.append(auc_score)
+        print(f"AUC after epoch {e + 1}: {auc_score:.4f}")
 
     # Evaluate performance
     scorecard = []
@@ -129,6 +132,7 @@ def train_and_evaluate(activation_function, weight_init, reg_type=None, reg_valu
         scorecard.append(1 if label == correct_label else 0)
 
     performance = (np.asarray(scorecard).sum() / len(test_inputs)) * 100
+    print(f"Performance : {performance:.2f}%")
     return epoch_losses, epoch_auc_scores, performance
 
 
